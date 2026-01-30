@@ -1,0 +1,1009 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Fly Swatter (Local, Swappable Assets)</title>
+  <style>
+    :root { --ui-bg: rgba(0,0,0,.55); --ui-fg:#fff; --ui-muted: rgba(255,255,255,.75); }
+    html, body { height: 100%; margin: 0; }
+    body {
+      overflow: hidden;
+      background: #1f242b;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    #wrap { position: fixed; inset: 0; }
+    canvas { width: 100%; height: 100%; display: block; }
+
+    .hud {
+      position: fixed; left: 12px; top: 12px;
+      background: var(--ui-bg); color: var(--ui-fg);
+      border-radius: 12px; padding: 10px 12px;
+      display: flex; gap: 12px; align-items: baseline;
+      box-shadow: 0 12px 30px rgba(0,0,0,.25);
+      backdrop-filter: blur(6px);
+    }
+    .hud .big { font-weight: 700; font-size: 18px; letter-spacing: .2px; }
+    .hud .muted { color: var(--ui-muted); font-size: 13px; }
+
+    .panel {
+      position: fixed; right: 12px; top: 12px;
+      width: min(420px, calc(100vw - 24px));
+      background: var(--ui-bg); color: var(--ui-fg);
+      border-radius: 14px; padding: 12px;
+      box-shadow: 0 12px 30px rgba(0,0,0,.25);
+      backdrop-filter: blur(6px);
+    }
+    .panel h1 { margin: 0 0 8px; font-size: 14px; font-weight: 700; letter-spacing: .2px; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .row + .row { margin-top: 10px; }
+
+    button {
+      cursor: pointer;
+      border: 0;
+      border-radius: 12px;
+      padding: 10px 12px;
+      color: #0b0f14;
+      font-weight: 700;
+    }
+    .btn-primary { background: #d7ff63; }
+    .btn-ghost { background: rgba(255,255,255,.15); color: var(--ui-fg); font-weight: 600; }
+
+    label { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ui-muted); white-space: nowrap; }
+    input[type="range"] { width: 140px; }
+    input[type="file"] { max-width: 100%; }
+
+    .toast {
+      position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%);
+      background: rgba(0,0,0,.72); color: #fff;
+      padding: 10px 12px; border-radius: 999px;
+      font-size: 13px; opacity: 0; pointer-events: none;
+      transition: opacity .18s ease;
+    }
+    .toast.show { opacity: 1; }
+
+    .centerOverlay {
+      position: fixed; inset: 0; display: none; place-items: center;
+      background: radial-gradient(circle at center, rgba(0,0,0,.45), rgba(0,0,0,.75));
+      color: #fff; text-align: center; padding: 24px;
+    }
+    .centerOverlay.show { display: grid; }
+    .centerOverlay .card {
+      width: min(560px, 100%);
+      background: rgba(0,0,0,.55);
+      border-radius: 18px;
+      padding: 18px 18px 14px;
+      box-shadow: 0 18px 60px rgba(0,0,0,.35);
+      backdrop-filter: blur(6px);
+    }
+    .centerOverlay .title { font-size: 22px; font-weight: 800; margin: 0 0 8px; }
+    .centerOverlay .subtitle { margin: 0 0 14px; color: rgba(255,255,255,.8); line-height: 1.35; }
+
+    .kbd {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 8px;
+      background: rgba(255,255,255,.12);
+      border: 1px solid rgba(255,255,255,.18);
+      font-weight: 700;
+      font-size: 12px;
+    }
+
+    body.hideCursor { cursor: none; }
+  </style>
+</head>
+<body class="hideCursor">
+  <div id="wrap"><canvas id="game" width="1280" height="720"></canvas></div>
+
+  <div class="hud" aria-label="HUD">
+    <div class="big">Score: <span id="score">0</span></div>
+    <div class="big">Lives: <span id="lives">3</span></div>
+    <div class="muted">Wave <span id="wave">1</span> · Remaining <span id="remaining">25</span></div>
+  </div>
+
+  <details class="panel" aria-label="Controls"><summary style="cursor:pointer;font-weight:700;">Controls & Assets</summary>
+    <h1>Fly Swatter</h1>
+    <div class="row">
+      <button id="btnStart" class="btn-primary">Start / Restart</button>
+      <button id="btnPause" class="btn-ghost">Pause</button>
+      <button id="btnMute" class="btn-ghost">Mute</button>
+    </div>
+
+    <div class="row">
+      <label>Difficulty
+        <input id="difficulty" type="range" min="1" max="5" step="1" value="2" />
+        <span id="difficultyLabel" class="muted">2</span>
+      </label>
+      <label>Swat size
+        <input id="swatSize" type="range" min="18" max="72" step="1" value="44" />
+        <span id="swatSizeLabel" class="muted">44</span>
+      </label>
+    </div>
+
+    <div class="row">
+      <label>Asset pack
+        <select id="assetPack">
+          <option value="default">Default (drawn)</option>
+          <option value="images">Images folder (./assets)</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="row" style="align-items:flex-start">
+      <div style="flex:1; min-width: 220px;">
+        <div class="muted" style="margin-bottom:6px;">Optional: pick your own images (local files) for instant swapping.</div>
+        <div class="row">
+          <label>Fly <input id="fileFly" type="file" accept="image/*" /></label>
+          <label>Bomb <input id="fileBomb" type="file" accept="image/*" /></label>
+          <label>Swatter <input id="fileSwatter" type="file" accept="image/*" /></label>
+          <label>Background <input id="fileBg" type="file" accept="image/*" /></label>
+        </div>
+      </div>
+    </div>
+
+    <div class="row"><div class="muted">Controls: click/tap to swat · <span class="kbd">Space</span> restart · <span class="kbd">P</span> pause · <span class="kbd">M</span> mute</div></div>
+
+    <div class="row">
+      <details style="width:100%;">
+        <summary style="cursor:pointer;">How to swap assets (folder method)</summary>
+        <div class="muted" style="margin-top:8px; line-height:1.35;">
+          Create a folder next to this HTML file named <b>assets</b> with these files:
+          <ul>
+            <li><b>bg.png</b> (or .jpg)</li>
+            <li><b>fly.png</b></li>
+            <li><b>bomb.png</b> (optional)</li>
+            <li><b>swatter.png</b></li>
+            <li><b>swat.wav</b> (optional)</li>
+            <li><b>hit.wav</b> (optional)</li>
+            <li><b>lose.wav</b> (optional)</li>
+          </ul>
+          Then choose <b>Images folder (./assets)</b> from the Asset pack dropdown.
+        </div>
+      </details>
+    </div>
+  </details>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <div id="overlay" class="centerOverlay">
+    <div class="card">
+      <div class="title" id="overlayTitle">Fly Swatter</div>
+      <p class="subtitle" id="overlayText">Swat the bugs before they hit your hand.</p>
+      <div class="row" style="justify-content:center; gap: 12px;">
+        <button id="btnOverlayStart" class="btn-primary">Start</button>
+        <button id="btnOverlayClose" class="btn-ghost">Close</button>
+      </div>
+      <div class="muted" style="margin-top:10px;">Tip: prioritize <b>red</b> bugs and bombs—they’re the ones trying to ruin your day.</div>
+    </div>
+  </div>
+
+  <script>
+    // ---------- Helpers ----------
+    const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+    const rand = (a, b) => a + Math.random() * (b - a);
+    const dist2 = (ax, ay, bx, by) => { const dx = ax - bx, dy = ay - by; return dx*dx + dy*dy; };
+
+    function loadImage(src) {
+      return new Promise((resolve) => {
+        if (!src) return resolve(null);
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => resolve(null);
+        img.src = src;
+      });
+    }
+    function fileToObjectURL(file) {
+      return new Promise((resolve) => {
+        if (!file) return resolve(null);
+        resolve(URL.createObjectURL(file));
+      });
+    }
+
+    class SFX {
+      constructor(){ this.muted=false; this.ctx=null; this.buffers=new Map(); }
+      setMuted(m){ this.muted=m; }
+      async init(){
+        if(this.ctx) return;
+        try{ this.ctx=new (window.AudioContext||window.webkitAudioContext)(); }
+        catch{ this.ctx=null; }
+      }
+      async load(name,url){
+        if(!url) return;
+        await this.init();
+        if(!this.ctx) return;
+        try{
+          const res=await fetch(url);
+          const arr=await res.arrayBuffer();
+          const buf=await this.ctx.decodeAudioData(arr);
+          this.buffers.set(name,buf);
+        }catch{}
+      }
+      async play(name,{volume=0.45,rate=1}={}){
+        if(this.muted) return;
+        await this.init();
+        if(!this.ctx) return;
+        const buf=this.buffers.get(name);
+        if(!buf){ this._beep(520*rate,0.04,volume*0.5); return; }
+        const src=this.ctx.createBufferSource();
+        src.buffer=buf;
+        src.playbackRate.value=rate;
+        const g=this.ctx.createGain();
+        g.gain.value=volume;
+        src.connect(g).connect(this.ctx.destination);
+        src.start(0);
+      }
+      _beep(freq,dur,vol){
+        if(this.muted||!this.ctx) return;
+        const o=this.ctx.createOscillator();
+        const g=this.ctx.createGain();
+        o.type='square';
+        o.frequency.value=freq;
+        g.gain.value=vol;
+        o.connect(g).connect(this.ctx.destination);
+        o.start();
+        o.stop(this.ctx.currentTime+dur);
+      }
+    }
+
+    const ASSET_PACKS={
+      default:{bg:null,fly:null,bomb:null,swatter:null,sfx:{swat:null,hit:null,lose:null}},
+      images:{bg:'./assets/bg.png',fly:'./assets/fly.png',bomb:'./assets/bomb.png',swatter:'./assets/swatter.png',sfx:{swat:'./assets/swat.wav',hit:'./assets/hit.wav',lose:'./assets/lose.wav'}}
+    };
+
+    const canvas=document.getElementById('game');
+    const ctx=canvas.getContext('2d');
+
+    // NOTE: these IDs exist, so browsers expose them as globals (score, lives, ...).
+    // Keeping this pattern because your existing code/tests rely on it.
+    const ui={ score:score,lives:lives,wave:wave,remaining:remaining,btnStart:btnStart,btnPause:btnPause,btnMute:btnMute,difficulty:difficulty,difficultyLabel:difficultyLabel,swatSize:swatSize,swatSizeLabel:swatSizeLabel,assetPack:assetPack,toast:toast,overlay:overlay,overlayTitle:overlayTitle,overlayText:overlayText,btnOverlayStart:btnOverlayStart,btnOverlayClose:btnOverlayClose,fileFly:fileFly,fileBomb:fileBomb,fileSwatter:fileSwatter,fileBg:fileBg };
+
+    const sfx=new SFX();
+    const state={
+      running:false,paused:false,over:false,
+      score:0,lives:3,wave:1,remaining:25,
+      t:0,last:performance.now(),spawnTimer:0,
+      mx:0,my:0,swatPulse:0,swatCooldown:0,
+      difficulty:2,swatRadius:44,
+      hand:{x:0.83,y:0.75,followsCursor:true},
+      bugs:[],stingers:[],particles:[],
+      assets:{bg:null,fly:null,bomb:null,swatter:null},
+      overrides:{bg:null,fly:null,bomb:null,swatter:null}
+    };
+
+    function resize(){
+      const dpr=Math.max(1,Math.min(2,window.devicePixelRatio||1));
+      canvas.width=Math.floor(innerWidth*dpr);
+      canvas.height=Math.floor(innerHeight*dpr);
+    }
+    window.addEventListener('resize',resize);
+    resize();
+
+    let toastTimer=null;
+    function toastMsg(msg){
+      ui.toast.textContent=msg;
+      ui.toast.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer=setTimeout(()=>ui.toast.classList.remove('show'),1200);
+    }
+    function showOverlay(title,text){ ui.overlayTitle.textContent=title; ui.overlayText.textContent=text; ui.overlay.classList.add('show'); }
+    function hideOverlay(){ ui.overlay.classList.remove('show'); }
+
+    function syncUI(){
+      ui.score.textContent=String(state.score);
+      ui.lives.textContent=String(state.lives);
+      ui.wave.textContent=String(state.wave);
+      ui.remaining.textContent=String(state.remaining);
+      ui.difficultyLabel.textContent=String(state.difficulty);
+      ui.swatSizeLabel.textContent=String(state.swatRadius);
+      ui.btnPause.textContent=state.paused?'Resume':'Pause';
+      ui.btnMute.textContent=sfx.muted?'Unmute':'Mute';
+    }
+
+    ui.difficulty.addEventListener('input',()=>{ state.difficulty=parseInt(ui.difficulty.value,10); syncUI(); });
+    ui.swatSize.addEventListener('input',()=>{ state.swatRadius=parseInt(ui.swatSize.value,10); syncUI(); });
+    ui.btnStart.addEventListener('click',()=>restart());
+    canvas.addEventListener('click',()=>{ if(!state.running&&!state.over) restart(); });
+    ui.btnPause.addEventListener('click',()=>togglePause());
+    ui.btnMute.addEventListener('click',()=>{ sfx.setMuted(!sfx.muted); syncUI(); });
+    ui.btnOverlayStart.addEventListener('click',()=>{ hideOverlay(); restart(); });
+    ui.btnOverlayClose.addEventListener('click',hideOverlay);
+    ui.assetPack.addEventListener('change',async()=>{ await loadAssets(); toastMsg('Asset pack loaded'); });
+
+    async function setOverrideFromFile(key,file){
+      const url=await fileToObjectURL(file);
+      state.overrides[key]=url;
+      await loadAssets();
+      toastMsg(`${key} swapped`);
+    }
+    ui.fileFly.addEventListener('change',e=>setOverrideFromFile('fly',e.target.files?.[0]));
+    ui.fileBomb.addEventListener('change',e=>setOverrideFromFile('bomb',e.target.files?.[0]));
+    ui.fileSwatter.addEventListener('change',e=>setOverrideFromFile('swatter',e.target.files?.[0]));
+    ui.fileBg.addEventListener('change',e=>setOverrideFromFile('bg',e.target.files?.[0]));
+
+    function togglePause(){ if(!state.running) return; state.paused=!state.paused; syncUI(); toastMsg(state.paused?'Paused':'Resumed'); }
+    window.addEventListener('keydown',e=>{
+      if(e.code==='Space'){ e.preventDefault(); restart(); }
+      else if(e.key.toLowerCase()==='p'){ togglePause(); }
+      else if(e.key.toLowerCase()==='m'){ sfx.setMuted(!sfx.muted); syncUI(); }
+    });
+
+    function setMouseFromEvent(e){
+      const r=canvas.getBoundingClientRect();
+      const x=(e.clientX-r.left)/r.width;
+      const y=(e.clientY-r.top)/r.height;
+      state.mx=x; state.my=y;
+      if(state.hand.followsCursor){
+        state.hand.x=clamp(x,0.05,0.95);
+        state.hand.y=clamp(y,0.05,0.95);
+      }
+    }
+    window.addEventListener('mousemove',setMouseFromEvent);
+    window.addEventListener('touchmove',e=>{ if(!e.touches?.length) return; setMouseFromEvent(e.touches[0]); },{passive:true});
+
+    function doSwat(){
+      if(!state.running||state.paused||state.over) return;
+      if(state.swatCooldown>0) return;
+      state.swatPulse=0.16;
+      state.swatCooldown=0.08;
+
+      const w=canvas.width,h=canvas.height;
+      const sx=state.mx*w, sy=state.my*h;
+      const dpr=(window.devicePixelRatio||1);
+      // Increase swatter hitbox by 10% (visual size unchanged)
+      const r = state.swatRadius * dpr * 1.1;
+
+      let hits=0;
+      for(let i=state.bugs.length-1;i>=0;i--){
+        const b=state.bugs[i];
+        if(dist2(sx,sy,b.x,b.y) <= (r+b.radius)**2){
+          state.bugs.splice(i,1);
+          hits++;
+          state.score += (b.type==='bomb')?35:(b.type==='shooter')?25:10;
+          state.remaining = Math.max(0,state.remaining-1);
+          burst(b.x,b.y,b.color,10+Math.floor(rand(0,8)));
+          if(b.type==='bomb') explosion(b.x,b.y,64*dpr);
+        }
+      }
+      sfx.play('swat',{rate:hits?0.9+Math.random()*0.25:1.1+Math.random()*0.25, volume:hits?0.6:0.25});
+      syncUI();
+    }
+    window.addEventListener('mousedown',e=>{ if(e.button!==0) return; doSwat(); });
+    window.addEventListener('touchstart',e=>{ if(!e.touches?.length) return; setMouseFromEvent(e.touches[0]); doSwat(); },{passive:true});
+
+    async function loadAssets(){
+      const pack=ASSET_PACKS[ui.assetPack.value]||ASSET_PACKS.default;
+      const bgSrc=state.overrides.bg||pack.bg;
+      const flySrc=state.overrides.fly||pack.fly;
+      const bombSrc=state.overrides.bomb||pack.bomb;
+      const swatterSrc=state.overrides.swatter||pack.swatter;
+      const [bg,fly,bomb,swatter]=await Promise.all([
+        loadImage(bgSrc),
+        loadImage(flySrc),
+        loadImage(bombSrc),
+        loadImage(swatterSrc)
+      ]);
+      state.assets.bg=bg; state.assets.fly=fly; state.assets.bomb=bomb; state.assets.swatter=swatter;
+      await sfx.load('swat',pack.sfx?.swat||null);
+      await sfx.load('hit',pack.sfx?.hit||null);
+      await sfx.load('lose',pack.sfx?.lose||null);
+    }
+
+    function spawnBug(kind='fly'){
+      const w=canvas.width,h=canvas.height,dpr=(window.devicePixelRatio||1);
+
+      // Starter enemy: harmless ambient fly (wave 1 only)
+      const harmless = (state.wave === 1 && kind === 'fly');
+
+      // Interior movement bounds (enforced after entry)
+      const margin = 120 * dpr;
+
+      // Spawn OFFSCREEN
+      const side = Math.floor(rand(0,4));
+      let x, y;
+      if (side === 0) { x = rand(0, w); y = -40*dpr; }
+      else if (side === 1) { x = w + 40*dpr; y = rand(0, h); }
+      else if (side === 2) { x = rand(0, w); y = h + 40*dpr; }
+      else { x = -40*dpr; y = rand(0, h); }
+
+      // Target point INSIDE safe margin
+      const tx = rand(margin, w - margin);
+      const ty = rand(margin, h - margin);
+
+      const baseSpeed = harmless
+        ? rand(18, 32) * dpr
+        : (80 + state.wave*10 + state.difficulty*18) * dpr;
+
+      const dx = tx - x;
+      const dy = ty - y;
+      const mag = Math.hypot(dx,dy) || 1;
+
+      const isShooter = kind === 'shooter';
+      const isBomb = kind === 'bomb';
+      const radius = (isBomb?18:isShooter?16:14) * dpr;
+      const color = harmless ? '#cfd6df' : (isBomb?'#ffcc66':isShooter?'#ff6b6b':'#e5e8ee');
+
+      state.bugs.push({
+        type: kind,
+        harmless,
+        x, y,
+        vx: (dx/mag) * baseSpeed,
+        vy: (dy/mag) * baseSpeed,
+        radius,
+        color,
+        shootCd: (isShooter && !harmless) ? rand(0.5,1.4) : 999,
+        fuse: (isBomb && !harmless) ? rand(1.2,2.6) : 999,
+        wob: rand(0, Math.PI*2),
+        bounds: { minX: margin, maxX: w-margin, minY: margin, maxY: h-margin },
+        entered: false,
+        spawnSide: side
+      });
+    }
+
+    function spawnStinger(fromX,fromY,toX,toY){
+      const dpr=(window.devicePixelRatio||1);
+      const dx=toX-fromX, dy=toY-fromY;
+      const mag=Math.hypot(dx,dy)||1;
+      const speed=(240+state.difficulty*40+state.wave*12)*dpr;
+      state.stingers.push({x:fromX,y:fromY,vx:(dx/mag)*speed,vy:(dy/mag)*speed,r:6*dpr,life:2.0});
+    }
+
+    function burst(x,y,color,n){
+      const dpr=(window.devicePixelRatio||1);
+      for(let i=0;i<n;i++){
+        const a=rand(0,Math.PI*2), sp=rand(40,220)*dpr;
+        state.particles.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:rand(0.25,0.75),color,r:rand(1.5,4.2)*dpr});
+      }
+    }
+
+    function explosion(x,y,radius){
+      const r2=radius*radius;
+      for(let i=state.bugs.length-1;i>=0;i--){
+        const b=state.bugs[i];
+        if(dist2(x,y,b.x,b.y)<=r2){
+          state.bugs.splice(i,1);
+          state.score+=6;
+          state.remaining=Math.max(0,state.remaining-1);
+          burst(b.x,b.y,b.color,8);
+        }
+      }
+    }
+
+    // Cursor = swatter impact point. Hand = danger zone (offset).
+    function handPosPx(){
+      const dpr=(window.devicePixelRatio||1);
+      const handHeight=34*dpr;
+      const handWidth=28*dpr;
+
+      // Base offsets
+      let ox = +2.0 * handWidth;
+      const oy = +2.5 * handHeight;
+
+      // During swat, slide hand left then return right (handle-follow illusion)
+      if (state.swatPulse > 0) {
+        const p = 1 - state.swatPulse / 0.16; // 0→1 over swing
+        const slide = Math.sin(p * Math.PI); // smooth left → right
+        ox -= slide * handWidth * 1.6; // ~160% hand width left at peak swing
+      }
+
+      return { x:(state.hand.x*canvas.width)+ox, y:(state.hand.y*canvas.height)+oy };
+    }
+
+    function loseLife(){
+      state.lives--;
+      sfx.play('lose',{volume:0.55,rate:0.95});
+      toastMsg('Ouch.');
+      if(state.lives<=0){
+        state.over=true;
+        state.running=false;
+        showOverlay('Game Over',`Final score: ${state.score}. Press Space or click Start to try again.`);
+      }
+      syncUI();
+    }
+
+    function newWave(w){
+      state.wave=w;
+      state.remaining=25+Math.floor(w*5);
+      state.spawnTimer=1.2;
+      state.bugs.length=0;
+      state.stingers.length=0;
+      state.particles.length=0;
+      toastMsg(`Wave ${w}`);
+      syncUI();
+    }
+
+    function restart(){
+      state.running=true;
+      state.paused=false;
+      state.over=false;
+      state.score=0;
+      state.lives=3;
+      state.wave=1;
+      state.spawnTimer=0;
+      state.swatPulse=0;
+      state.swatCooldown=0;
+      state.bugs.length=0;
+      state.stingers.length=0;
+      state.particles.length=0;
+      newWave(1);
+      hideOverlay();
+      syncUI();
+    }
+
+    function update(dt){
+      if(!state.running||state.paused) return;
+      state.t+=dt;
+      state.swatCooldown=Math.max(0,state.swatCooldown-dt);
+      state.swatPulse=Math.max(0,state.swatPulse-dt);
+
+      const w=canvas.width,h=canvas.height,dpr=(window.devicePixelRatio||1);
+      const hand=handPosPx();
+
+      // ---- spawning / wave progression ----
+      if(state.remaining>0){
+        state.spawnTimer-=dt;
+        const baseRate=1.4-Math.min(0.8,state.wave*0.12)-state.difficulty*0.08;
+        const rate=clamp(baseRate,0.45,1.6);
+
+        if(state.spawnTimer<=0){
+          state.spawnTimer=rate*rand(0.85,1.25);
+          const r=Math.random();
+          if(state.wave<3) spawnBug('fly');
+          else if(state.wave<6){ if(r<0.7) spawnBug('fly'); else spawnBug('shooter'); }
+          else { if(r<0.55) spawnBug('fly'); else if(r<0.8) spawnBug('shooter'); else spawnBug('bomb'); }
+
+          // Cap active bugs, but cull only those that haven't entered yet
+          const cap = 4 + state.wave;
+          if (state.bugs.length > cap) {
+            const excess = state.bugs.length - cap;
+            for (let k = 0; k < excess; k++) {
+              // Never cull harmless starter enemies; they must be allowed to enter
+              const idx = state.bugs.findIndex(bb => !bb.entered && !bb.harmless);
+              if (idx !== -1) state.bugs.splice(idx, 1);
+              else break; // nothing safe to cull
+            }
+          }
+        }
+      } else {
+        if(state.bugs.length===0 && state.stingers.length===0){
+          newWave(state.wave+1);
+        }
+      }
+
+      // ---- bugs ----
+      for(let i=state.bugs.length-1;i>=0;i--){
+        const b=state.bugs[i];
+        b.wob+=dt*(2.5+(b.type==='fly'?2.0:3.2));
+        const wobX=Math.cos(b.wob)*32*dpr*0.15;
+        const wobY=Math.sin(b.wob*1.7)*24*dpr*0.15;
+
+        // Homing bomb behavior (only if not harmless)
+        if(!b.harmless && b.type==='bomb'){
+          const dx=hand.x-b.x, dy=hand.y-b.y;
+          const mag=Math.hypot(dx,dy)||1;
+          const steer=0.55;
+          b.vx=b.vx*(1-steer*dt)+(dx/mag)*(140+state.difficulty*22)*dpr*(steer*dt);
+          b.vy=b.vy*(1-steer*dt)+(dy/mag)*(140+state.difficulty*22)*dpr*(steer*dt);
+          b.fuse-=dt;
+          if(b.fuse<=0){
+            const near=dist2(b.x,b.y,hand.x,hand.y)<(130*dpr)**2;
+            if(near){
+              burst(b.x,b.y,'#ffb86b',22);
+              const damageR=(b.radius+26*dpr);
+              if(dist2(b.x,b.y,hand.x,hand.y)<damageR*damageR){ burst(hand.x,hand.y,'#ffffff',18); loseLife(); }
+              state.bugs.splice(i,1);
+              continue;
+            } else {
+              b.fuse=rand(0.8,1.8);
+            }
+          }
+        }
+
+        // Shooter behavior (only if not harmless)
+        if(!b.harmless && b.type==='shooter'){
+          b.shootCd-=dt;
+          if(b.shootCd<=0){ spawnStinger(b.x,b.y,hand.x,hand.y); b.shootCd=rand(0.35,1.4); }
+        }
+
+        b.x += (b.vx*dt) + wobX;
+        b.y += (b.vy*dt) + wobY;
+
+        // Mark entry when bug crosses its inward boundary (per spawn side)
+        if (b.bounds && !b.entered) {
+          switch (b.spawnSide) {
+            case 0: if (b.y >= b.bounds.minY) b.entered = true; break; // from top
+            case 1: if (b.x <= b.bounds.maxX) b.entered = true; break; // from right
+            case 2: if (b.y <= b.bounds.maxY) b.entered = true; break; // from bottom
+            case 3: if (b.x >= b.bounds.minX) b.entered = true; break; // from left
+          }
+        }
+
+        // Trap bugs inside interior margin AFTER entry
+        if (b.bounds && b.entered) {
+          if (b.x < b.bounds.minX) { b.x = b.bounds.minX; b.vx = Math.abs(b.vx); }
+          if (b.x > b.bounds.maxX) { b.x = b.bounds.maxX; b.vx = -Math.abs(b.vx); }
+          if (b.y < b.bounds.minY) { b.y = b.bounds.minY; b.vy = Math.abs(b.vy); }
+          if (b.y > b.bounds.maxY) { b.y = b.bounds.maxY; b.vy = -Math.abs(b.vy); }
+        }
+
+        // Contact damage (skip for harmless starter enemies)
+        if(!b.harmless){
+          // Reduce effective hand hitbox by 10% (visual size unchanged)
+          const touchR = (b.radius + 22*dpr) * 0.9;
+          if(dist2(b.x,b.y,hand.x,hand.y)<touchR*touchR){
+            state.bugs.splice(i,1);
+            burst(hand.x,hand.y,'#ffffff',18);
+            loseLife();
+            continue;
+          }
+        }
+      }
+
+      // ---- stingers ----
+      for(let i=state.stingers.length-1;i>=0;i--){
+        const s=state.stingers[i];
+        s.life-=dt;
+        s.x+=s.vx*dt;
+        s.y+=s.vy*dt;
+        if(dist2(s.x,s.y,hand.x,hand.y)<(s.r+18*dpr)**2){
+          state.stingers.splice(i,1);
+          burst(hand.x,hand.y,'#c3f0ff',16);
+          sfx.play('hit',{volume:0.55,rate:1.05});
+          loseLife();
+          continue;
+        }
+        if(s.life<=0||s.x<-80*dpr||s.x>w+80*dpr||s.y<-80*dpr||s.y>h+80*dpr){ state.stingers.splice(i,1); }
+      }
+
+      // ---- particles ----
+      for(let i=state.particles.length-1;i>=0;i--){
+        const p=state.particles[i];
+        p.life-=dt;
+        p.x+=p.vx*dt;
+        p.y+=p.vy*dt;
+        p.vx*=(1-3.5*dt);
+        p.vy*=(1-3.5*dt);
+        if(p.life<=0) state.particles.splice(i,1);
+      }
+
+      syncUI();
+    }
+
+    function drawBackground(){
+      const w=canvas.width,h=canvas.height;
+      if(state.assets.bg){
+        const img=state.assets.bg;
+        const scale=Math.max(w/img.width,h/img.height);
+        const iw=img.width*scale, ih=img.height*scale;
+        ctx.drawImage(img,(w-iw)/2,(h-ih)/2,iw,ih);
+      } else {
+        const g=ctx.createLinearGradient(0,0,0,h);
+        g.addColorStop(0,'#222a33');
+        g.addColorStop(1,'#151a20');
+        ctx.fillStyle=g;
+        ctx.fillRect(0,0,w,h);
+        ctx.globalAlpha=0.08;
+        const dpr=(window.devicePixelRatio||1);
+        for(let i=0;i<180;i++){
+          ctx.fillStyle='#fff';
+          ctx.beginPath();
+          ctx.arc(rand(0,w),rand(0,h),rand(0.5,1.8)*dpr,0,Math.PI*2);
+          ctx.fill();
+        }
+        ctx.globalAlpha=1;
+        ctx.fillStyle='rgba(255,255,255,.06)';
+        ctx.fillRect(0,h*0.66,w,h*0.34);
+      }
+    }
+
+    function drawHandTarget(){
+      const hand=handPosPx();
+      const dpr=(window.devicePixelRatio||1);
+      const r=34*dpr;
+      const rot = Math.PI / 4; // 45°
+
+      // shadow
+      ctx.save();
+      ctx.translate(hand.x,hand.y);
+      ctx.rotate(rot);
+      ctx.scale(-1,-1);
+      ctx.globalAlpha=0.22;
+      ctx.fillStyle='#000';
+      ctx.beginPath();
+      ctx.ellipse(8*dpr,10*dpr,r*1.2,r*0.85,0,0,Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+
+      // hand
+      ctx.save();
+      ctx.translate(hand.x,hand.y);
+      ctx.rotate(rot);
+      ctx.scale(-1,-1);
+      ctx.fillStyle='#f6f7fb';
+      ctx.strokeStyle='rgba(0,0,0,.25)';
+      ctx.lineWidth=2*dpr;
+      ctx.beginPath();
+      ctx.ellipse(0,0,r*1.1,r,0,0,Math.PI*2);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle='#fff';
+      for(let i=-2;i<=2;i++){
+        ctx.beginPath();
+        ctx.ellipse(i*12*dpr,-22*dpr,r*0.28,r*0.44,0,0,Math.PI*2);
+        ctx.fill();
+        ctx.stroke();
+      }
+
+      ctx.fillStyle='rgba(0,0,0,.18)';
+      ctx.beginPath();
+      ctx.ellipse(0,30*dpr,r*0.95,r*0.32,0,0,Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function drawBug(b){
+      const dpr=(window.devicePixelRatio||1);
+      const img=(b.type==='bomb')?state.assets.bomb:state.assets.fly;
+      if(img){
+        const s=(b.type==='bomb'?46:40)*dpr;
+        ctx.drawImage(img,b.x-s/2,b.y-s/2,s,s);
+        if(b.type==='shooter'){
+          ctx.strokeStyle='rgba(255,107,107,.55)';
+          ctx.lineWidth=3*dpr;
+          ctx.beginPath();
+          ctx.arc(b.x,b.y,b.radius+8*dpr,0,Math.PI*2);
+          ctx.stroke();
+        }
+        return;
+      }
+
+      ctx.save();
+      ctx.translate(b.x,b.y);
+      ctx.fillStyle=b.type==='shooter'?'#ff6b6b':b.type==='bomb'?'#ffcc66':'#dce2ea';
+      if(b.harmless) ctx.fillStyle='#cfd6df';
+      ctx.strokeStyle='rgba(0,0,0,.28)';
+      ctx.lineWidth=2*dpr;
+      ctx.beginPath();
+      ctx.ellipse(0,0,b.radius*1.1,b.radius*0.95,0,0,Math.PI*2);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.globalAlpha=0.45;
+      ctx.fillStyle='#b9d9ff';
+      ctx.beginPath();
+      ctx.ellipse(-b.radius*0.8,-b.radius*0.6,b.radius*0.95,b.radius*0.55,-0.35,0,Math.PI*2);
+      ctx.ellipse(b.radius*0.8,-b.radius*0.6,b.radius*0.95,b.radius*0.55,0.35,0,Math.PI*2);
+      ctx.fill();
+      ctx.globalAlpha=1;
+
+      ctx.fillStyle='#0b0f14';
+      ctx.beginPath();
+      ctx.arc(-b.radius*0.35,-b.radius*0.1,b.radius*0.12,0,Math.PI*2);
+      ctx.arc(b.radius*0.35,-b.radius*0.1,b.radius*0.12,0,Math.PI*2);
+      ctx.fill();
+
+      if(!b.harmless && b.type==='bomb'){
+        ctx.strokeStyle='rgba(255,255,255,.75)';
+        ctx.lineWidth=3*dpr;
+        ctx.beginPath();
+        ctx.arc(0,0,b.radius+12*dpr,-Math.PI/2,-Math.PI/2+Math.PI*2*0.22);
+        ctx.stroke();
+      }
+
+      ctx.restore();
+    }
+
+    function drawStinger(s){
+      const dpr=(window.devicePixelRatio||1);
+      ctx.save();
+      ctx.translate(s.x,s.y);
+      ctx.fillStyle='#c3f0ff';
+      ctx.strokeStyle='rgba(0,0,0,.22)';
+      ctx.lineWidth=2*dpr;
+      ctx.beginPath();
+      ctx.arc(0,0,s.r,0,Math.PI*2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawParticles(){
+      for(const p of state.particles){
+        const a=clamp(p.life/0.75,0,1);
+        ctx.globalAlpha=a;
+        ctx.fillStyle=p.color;
+        ctx.beginPath();
+        ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
+        ctx.fill();
+      }
+      ctx.globalAlpha=1;
+    }
+
+    function drawSwatFX(){
+      if(state.swatPulse<=0) return;
+      const w=canvas.width,h=canvas.height,dpr=(window.devicePixelRatio||1);
+      const x=state.mx*w,y=state.my*h;
+      const p=state.swatPulse/0.16;
+      const r=(state.swatRadius*dpr)*(1+(1-p)*0.22);
+      ctx.save();
+      ctx.globalAlpha=0.28*p;
+      ctx.strokeStyle='#fff';
+      ctx.lineWidth=4*dpr;
+      ctx.beginPath();
+      ctx.arc(x,y,r,0,Math.PI*2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawSwatterCursor(){
+      const w=canvas.width,h=canvas.height,dpr=(window.devicePixelRatio||1);
+      const x=state.mx*w,y=state.my*h;
+      const img=state.assets.swatter;
+      if(img){
+        const s=120*dpr;
+        const angle=-0.55+(state.swatPulse>0?(1-state.swatPulse/0.16)*0.55:0);
+        ctx.save();
+        ctx.translate(x,y);
+        ctx.rotate(angle);
+        ctx.globalAlpha=0.95;
+        ctx.drawImage(img,-s*0.2,-s*0.78,s,s);
+        ctx.restore();
+        return;
+      }
+
+      ctx.save();
+      ctx.translate(x,y);
+      const swing=(state.swatPulse>0?(1-state.swatPulse/0.16):0);
+      ctx.rotate(-0.65+swing*0.65);
+
+      ctx.fillStyle='rgba(255,255,255,.92)';
+      ctx.strokeStyle='rgba(0,0,0,.22)';
+      ctx.lineWidth=2*dpr;
+      ctx.beginPath();
+      ctx.roundRect(-6*dpr,18*dpr,12*dpr,110*dpr,10*dpr);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle='rgba(255,255,255,.2)';
+      ctx.strokeStyle='rgba(255,255,255,.55)';
+      ctx.lineWidth=2*dpr;
+      ctx.beginPath();
+      ctx.roundRect(-34*dpr,-46*dpr,68*dpr,78*dpr,14*dpr);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.strokeStyle='rgba(255,255,255,.25)';
+      ctx.lineWidth=1*dpr;
+      for(let i=-24;i<=24;i+=12){ ctx.beginPath(); ctx.moveTo(i*dpr,-44*dpr); ctx.lineTo(i*dpr,30*dpr); ctx.stroke(); }
+      for(let j=-34;j<=18;j+=12){ ctx.beginPath(); ctx.moveTo(-32*dpr,j*dpr); ctx.lineTo(32*dpr,j*dpr); ctx.stroke(); }
+      ctx.restore();
+    }
+
+    if(!CanvasRenderingContext2D.prototype.roundRect){
+      CanvasRenderingContext2D.prototype.roundRect=function(x,y,w,h,r){
+        const rr=Array.isArray(r)?r:[r,r,r,r];
+        const [tl,tr,br,bl]=rr;
+        this.beginPath();
+        this.moveTo(x+tl,y);
+        this.lineTo(x+w-tr,y);
+        this.quadraticCurveTo(x+w,y,x+w,y+tr);
+        this.lineTo(x+w,y+h-br);
+        this.quadraticCurveTo(x+w,y+h,x+w-br,y+h);
+        this.lineTo(x+bl,y+h);
+        this.quadraticCurveTo(x,y+h,x,y+h-bl);
+        this.lineTo(x,y+tl);
+        this.quadraticCurveTo(x,y,x+tl,y);
+        return this;
+      };
+    }
+
+    function draw(){
+      const w=canvas.width,h=canvas.height;
+      ctx.clearRect(0,0,w,h);
+      drawBackground();
+
+      ctx.save();
+      const vg=ctx.createRadialGradient(w*0.5,h*0.5,0,w*0.5,h*0.5,Math.max(w,h)*0.6);
+      vg.addColorStop(0,'rgba(0,0,0,0)');
+      vg.addColorStop(1,'rgba(0,0,0,.35)');
+      ctx.fillStyle=vg;
+      ctx.fillRect(0,0,w,h);
+      ctx.restore();
+
+      drawHandTarget();
+      for(const b of state.bugs) drawBug(b);
+      for(const s of state.stingers) drawStinger(s);
+      drawParticles();
+      drawSwatFX();
+      drawSwatterCursor();
+
+      if(state.running&&state.paused){
+        const dpr=(window.devicePixelRatio||1);
+        ctx.save();
+        ctx.fillStyle='rgba(0,0,0,.45)';
+        ctx.fillRect(0,0,w,h);
+        ctx.fillStyle='#fff';
+        ctx.textAlign='center';
+        ctx.textBaseline='middle';
+        ctx.font=`${28*dpr}px system-ui`;
+        ctx.fillText('Paused',w/2,h/2);
+        ctx.font=`${14*dpr}px system-ui`;
+        ctx.fillText('Press P to resume',w/2,h/2+34*dpr);
+        ctx.restore();
+      }
+    }
+
+    function loop(now){
+      const dt=Math.min(0.033,(now-state.last)/1000);
+      state.last=now;
+      update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    // ---------- Minimal self-tests ----------
+    function assert(cond,msg){ if(!cond) throw new Error(`Test failed: ${msg}`); }
+    function runTests(){
+      const prev={running:state.running,paused:state.paused,over:state.over,lives:state.lives,wave:state.wave};
+
+      state.running=true; state.paused=false; state.over=false;
+      state.remaining=0; state.bugs.length=0; state.stingers.length=0;
+      const w0=state.wave;
+      update(0.016);
+      assert(state.wave===w0+1,'Wave should advance when quota cleared');
+
+      state.wave=1; state.remaining=10; state.spawnTimer=-1; state.bugs.length=0;
+      update(0.016);
+      assert(state.bugs.length>=1,'Spawn should occur when timer<=0');
+
+      const hp=handPosPx();
+      assert(Number.isFinite(hp.x)&&Number.isFinite(hp.y),'handPosPx finite');
+
+      // Existing invariant: offset is down/right
+      state.hand.x=0.5; state.hand.y=0.5;
+      const hp2=handPosPx();
+      assert(hp2.x>state.hand.x*canvas.width,'Hand offset should be to the right');
+      assert(hp2.y>state.hand.y*canvas.height,'Hand offset should be downward');
+
+      // spawnBug spawns offscreen
+      state.bugs.length=0;
+      state.wave=1;
+      spawnBug('fly');
+      assert(state.bugs.length===1,'spawnBug should add a bug');
+      const b0=state.bugs[0];
+      const ww=canvas.width, hh=canvas.height;
+      const off = (b0.x<0 || b0.x>ww || b0.y<0 || b0.y>hh);
+      assert(off,'Bug should spawn offscreen');
+      assert(!!b0.bounds,'Bug should have bounds');
+
+      // harmless fly should not cause contact damage
+      state.bugs.length=0;
+      state.stingers.length=0;
+      state.wave=1;
+      state.lives=3;
+      state.hand.x=0.5; state.hand.y=0.5;
+      const hhPos=handPosPx();
+      state.bugs.push({ type:'fly', harmless:true, x:hhPos.x, y:hhPos.y, vx:0, vy:0, radius:14, color:'#cfd6df', shootCd:999, fuse:999, wob:0, bounds:null, entered:true, spawnSide:0 });
+      update(0.016);
+      assert(state.lives===3,'Harmless fly contact should not reduce lives');
+
+      // NEW: update() should not throw / parse (sanity)
+      update(0.0);
+      assert(true,'update should run without syntax issues');
+
+      state.running=prev.running; state.paused=prev.paused; state.over=prev.over; state.lives=prev.lives; state.wave=prev.wave;
+      console.log('FlySwatter tests: PASS');
+    }
+
+    (async function boot(){
+      showOverlay('Fly Swatter','Click anywhere or press Space to start.');
+      await loadAssets();
+      syncUI();
+      try{ runTests(); }catch(e){ console.error(e); }
+      requestAnimationFrame(t=>{ state.last=t; loop(t); });
+    })();
+  </script>
+</body>
+</html>
